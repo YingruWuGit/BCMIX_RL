@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.special import logsumexp
 
 
 XSTAR = 0
@@ -35,6 +36,8 @@ def env_response(x, alpha, beta, mean_0=None, covm_0=None, p=0):
         mean_0, covm_0: the prior of alpha beta
         p: probability of change point
     """
+    if (p > 0) and (mean_0 is None) and (covm_0 is None):
+        raise ValueError("If p > 0, need to provide mean_0 and covm_0")
     ic = np.random.binomial(1, p)
     if ic:
         alpha, beta = np.random.multivariate_normal(mean_0.flatten(), covm_0)
@@ -60,18 +63,20 @@ def q_myopic_without_change(canonical, precision, x, alpha, beta):
         canonical, precision: state at current step
         x: action
     """
-    estimates = []
-    for _ in range(N):
-        totreward = 0
-        canonical_i, precision_i, x_i = canonical, precision, x
-        for i in range(LIM):
-            y_i = env_response(x_i, alpha, beta)[0]
-            totreward += GAMMA ** i * reward(x_i, y_i)
-            # next state
-            canonical_i, precision_i = update_without_change(canonical_i, precision_i, x_i, y_i)
-            x_i = myopic(canonical_i, precision_i)
-        estimates.append(totreward)
-    return np.mean(estimates)
+    totreward = np.zeros(N)
+    canonical_batch = [canonical.copy() for _ in range(N)]
+    precision_batch = [precision.copy() for _ in range(N)]
+    x_batch = np.full(N, x)
+
+    for i in range(LIM):
+        y_batch = alpha + x_batch * beta + np.random.normal(0.0, 1.0, N)
+        totreward += (GAMMA ** i) * reward(x_batch, y_batch)
+        for j in range(N):
+            canonical_batch[j], precision_batch[j] = update_without_change(
+                canonical_batch[j], precision_batch[j], x_batch[j], y_batch[j]
+            )
+            x_batch[j] = myopic(canonical_batch[j], precision_batch[j])
+    return np.mean(totreward)
 
 def update_with_change(canonicals, precisions, logcons, pit, x, y, p):
     """
@@ -86,38 +91,39 @@ def update_with_change(canonicals, precisions, logcons, pit, x, y, p):
     canonicals_t = [canonicals[0]] + [np.nan] * len(canonicals)
     precisions_t = [precisions[0]] + [np.nan] * len(precisions)
     logcons_t = [logcons[0]] + [np.nan] * len(logcons)
-    pitstar_t = [0] + [np.nan] * len(pit)
+    logpits_t = [float("-inf")] + [np.nan] * len(pit)
     for i in range(1, len(canonicals)):
         # update k_t = i < t
         canonicals_t[i], precisions_t[i] = update_without_change(canonicals[i], precisions[i], x, y)
         logcons_t[i] = np.linalg.slogdet(precisions_t[i])[1] / 2 - (canonicals_t[i].T @ np.linalg.inv(precisions_t[i]) @ canonicals_t[i]).item() / 2
-        pitstar_t[i] = (1 - p) * pit[i] * (np.exp(logcons[i] - logcons_t[i]) if logcons[i] - logcons_t[i] < 691 else 1e300)
+        logpits_t[i] = np.log(1 - p) + np.log(pit[i]) + (logcons[i] - logcons_t[i])
     # calculate k_t = t
     canonicals_t[-1], precisions_t[-1] = update_without_change(canonicals[0], precisions[0], x, y)
     logcons_t[-1] = np.linalg.slogdet(precisions_t[-1])[1] / 2 - (canonicals_t[-1].T @ np.linalg.inv(precisions_t[-1]) @ canonicals_t[-1]).item() / 2
-    pitstar_t[-1] = p * (np.exp(logcons[0] - logcons_t[-1]) if logcons[0] - logcons_t[-1] < 691 else 1e300)
-    likelhood = sum(pitstar_t)
-    pit_t = [_ / likelhood for _ in pitstar_t]
-    return canonicals_t, precisions_t, logcons_t, pit_t, np.log(likelhood)
+    logpits_t[-1] = np.log(p) + (logcons[0] - logcons_t[-1])
+    max_logpits_t = np.max(logpits_t)
+    pit_t = np.exp(np.array(logpits_t) - max_logpits_t)
+    pit_t /= np.sum(pit_t)
+    log_like = logsumexp(logpits_t)
+    return canonicals_t, precisions_t, logcons_t, pit_t.tolist(), log_like
 
 def q_myopic_with_change(canonicals, precisions, logcons, pit, x, alpha, beta, mean_0, covm_0, p):
     """
     given change point model and priors, calculate Q function of state and action following myopic policy
     """
-    estimates = []
+    estimates = np.zeros(N)
     for _ in range(N):
         totreward = 0
         canonicals_i, precisions_i, logcons_i, pit_i, x_i = canonicals, precisions, logcons, pit, x
         alpha_i, beta_i = alpha, beta
         for i in range(LIM):
             y_i, alpha_i, beta_i = env_response(x_i, alpha_i, beta_i, mean_0, covm_0, p)
-            totreward += GAMMA ** i * reward(x_i, y_i)
+            totreward += (GAMMA ** i) * reward(x_i, y_i)
             # next state
             canonicals_i, precisions_i, logcons_i, pit_i, loglike = update_with_change(canonicals_i, precisions_i, logcons_i, pit_i, x_i, y_i, p)
-            x_i = 0
-            for mixture in zip(canonicals_i, precisions_i, pit_i):
-                x_i += myopic(mixture[0], mixture[1]) * mixture[2]
-        estimates.append(totreward)
+            myopics = np.array([myopic(canonical, precision) for canonical, precision in zip(canonicals_i, precisions_i)])
+            x_i = np.dot(myopics, pit_i)
+        estimates[_] = totreward
     return np.mean(estimates)
 
 def marginal_likelihood(p, canonicals_0, precisions_0, logcons_0, pit_0, xs, ys):
