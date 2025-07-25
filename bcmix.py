@@ -6,8 +6,8 @@ XSTAR = 0
 YSTAR = 0
 W = 0
 GAMMA = 0.9
-LIM = 50
-N = 200
+LIM = 30
+N = 100
 
 
 def reward(x, y):
