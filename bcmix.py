@@ -83,13 +83,20 @@ def q_myopic_without_change(canonical, precision, x, alpha, beta):
 
 def update_with_change(states, x, y, p):
     """
+    update states(canonical precision logcon pit) after observe x and y, assume changes
+    parameters:
+        states: states at current step, set of fixed num of mixtures, M1 latest, M2 previous highest
+        x, y: observations
+        p: probability of change point
     """
     states_t = copy.deepcopy(states)
     logpit_s = [float("-inf")] + [np.nan] * len(states_t)
+    # kit = i < t
     for i in range(1, len(states_t)):
         states_t[i]["can"], states_t[i]["pre"] = update_without_change(states[i]["can"], states[i]["pre"], x, y)
         states_t[i]["log"] = (np.linalg.slogdet(states_t[i]["pre"])[1] - (states_t[i]["can"].T @ np.linalg.inv(states_t[i]["pre"]) @ states_t[i]["can"]).item()) / 2
         logpit_s[i] = np.log(1 - p) + np.log(states[i]["pit"]) + (states[i]["log"] - states_t[i]["log"])
+    # kit = t
     states_t[-1] = {}
     states_t[-1]["can"], states_t[-1]["pre"] = update_without_change(states[0]["can"], states[0]["pre"], x, y)
     states_t[-1]["log"] = (np.linalg.slogdet(states_t[-1]["pre"])[1] - (states_t[-1]["can"].T @ np.linalg.inv(states_t[-1]["pre"]) @ states_t[-1]["can"]).item()) / 2
@@ -98,12 +105,15 @@ def update_with_change(states, x, y, p):
     pit_t = np.exp(np.array(logpit_s) - max_logpit_t)
     pit_t /= np.sum(pit_t)
     #log_like = logsumexp(logpit_s)
+
     for i in states_t.keys():
         states_t[i]["pit"] = pit_t[i]
     if len(states_t) <= M1 + M2 + 1:
+        # num mix <= bound
         states_t[len(states_t)] = states_t.pop(-1)
         return states_t
     else:
+        # num mix > bound
         ans = {0: states_t[0]}
         temp = sorted([states_t[_] for _ in range(1, M2 + 2)], key=lambda s: s["pit"])
         for i in range(1, M2 + 1):
@@ -115,9 +125,17 @@ def update_with_change(states, x, y, p):
 
 def q_myopic_with_change(states, x, alpha, beta, mean_true, covm_true, p):
     """
+    calculate Q function of states and action following myopic policy
+    parameters:
+        states: states at current step
+        x: action
+        alpha, beta: previous env parameters, might change at this step
+        mean_true, covm_true: how alpha beta generated
+        p: probability of change point
     """
     estimates = np.zeros(N)
     for n in range(N):
+        # initialize
         totreward = 0
         states_i, x_i, alpha_i, beta_i = copy.deepcopy(states), x, alpha, beta
         for i in range(LIM):
@@ -126,19 +144,9 @@ def q_myopic_with_change(states, x, alpha, beta, mean_true, covm_true, p):
             # next state
             states_i = update_with_change(states_i, x_i, y_i, p)
             myopics = np.array([myopic(s["can"], s["pre"]) for _, s in states_i.items()])
+            # note that alpha beta might change at this step
             pit_i = np.array([s["pit"] for _, s in states_i.items()]) * (1 - p)
             pit_i[0] = p
             x_i = np.dot(myopics, pit_i)
         estimates[n] = totreward
     return np.mean(estimates)
-
-"""
-def marginal_likelihood(p, canonicals_0, precisions_0, logcons_0, pit_0, xs, ys):
-
-    loglike = 0
-    params_i = (canonicals_0, precisions_0, logcons_0, pit_0, 0)
-    for i in range(len(xs)):
-        params_i = update_with_change(*params_i[:4], xs[i], ys[i], p)
-        loglike += params_i[4]
-    return loglike
-"""
