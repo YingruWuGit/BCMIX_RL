@@ -4,7 +4,7 @@ from scipy.special import logsumexp
 
 
 XSTAR = 0
-YSTAR = 0
+YSTAR = 1
 W = 0
 GAMMA = 0.9
 LIM = 30
