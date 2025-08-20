@@ -31,7 +31,7 @@ def myopic(canonical, precision):
     myopic = -(vab + (a - YSTAR) * b - W * XSTAR) / (vb + b ** 2 + W)
     return myopic
 
-def env_response(x, alpha, beta, mean_true=None, covm_true=None, p=0):
+def env_response(x, alpha, beta, mean_true=None, covm_true=None, p=0, err=None):
     """
     immediate response y and new alpha beta
     parameters:
@@ -44,7 +44,8 @@ def env_response(x, alpha, beta, mean_true=None, covm_true=None, p=0):
     ic = np.random.binomial(1, p)
     if ic:
         alpha, beta = np.random.multivariate_normal(mean_true.flatten(), covm_true)
-    y = alpha + x * beta + np.random.normal(0.0, 1.0)
+    err = np.random.normal(0.0, 1.0) if err is None else err
+    y = alpha + x * beta + err
     return y, alpha, beta
 
 def update_without_change(canonical, precision, x, y):
