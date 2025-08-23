@@ -14,7 +14,7 @@ M2 = 3
 N = 100
 """
 XSTAR = 1.9
-YSTAR = 2.0
+YSTAR = 4.3
 W = 0.05
 GAMMA = 0.9
 LIM = 30
@@ -38,8 +38,8 @@ def myopic(canonical, precision):
     mean = covm @ canonical
     a, b = mean[0][0], mean[1][0]
     vb, vab = covm[1][1], covm[0][1]
-    myopic = -(vab + (a - YSTAR) * b - W * XSTAR) / (vb + b ** 2 + W)
-    return myopic
+    x_myopic = -(vab + (a - YSTAR) * b - W * XSTAR) / (vb + b ** 2 + W)
+    return x_myopic
 
 def env_response(x, alpha, beta, mean_true=None, covm_true=None, p=0, err=None):
     """
@@ -134,6 +134,16 @@ def update_with_change(states, x, y, p):
         ans[M2 + M1] = states_t[-1]
         return ans
 
+def myopic_mix(states_i, p):
+    """
+    """
+    myopics = np.array([myopic(s["can"], s["pre"]) for _, s in states_i.items()])
+    # note that alpha beta might change at this step
+    pit_i = np.array([s["pit"] for _, s in states_i.items()]) * (1 - p)
+    pit_i[0] = p
+    x_myopic = np.dot(myopics, pit_i)
+    return x_myopic
+
 def q_myopic_with_change(states, x, alpha, beta, mean_true, covm_true, p):
     """
     calculate Q function of states and action following myopic policy
@@ -154,10 +164,6 @@ def q_myopic_with_change(states, x, alpha, beta, mean_true, covm_true, p):
             totreward += (GAMMA ** i) * reward(x_i, y_i)
             # next state
             states_i = update_with_change(states_i, x_i, y_i, p)
-            myopics = np.array([myopic(s["can"], s["pre"]) for _, s in states_i.items()])
-            # note that alpha beta might change at this step
-            pit_i = np.array([s["pit"] for _, s in states_i.items()]) * (1 - p)
-            pit_i[0] = p
-            x_i = np.dot(myopics, pit_i)
+            x_i = myopic_mix(states_i, p)
         estimates[n] = totreward
     return np.mean(estimates)
