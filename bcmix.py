@@ -3,6 +3,7 @@ import numpy as np
 from scipy.special import logsumexp
 
 
+"""
 XSTAR = 0
 YSTAR = 1
 W = 0
@@ -10,6 +11,15 @@ GAMMA = 0.9
 LIM = 30
 M1 = 4
 M2 = 3
+N = 100
+"""
+XSTAR = 1.9
+YSTAR = 2.0
+W = 0.05
+GAMMA = 0.9
+LIM = 30
+M1 = 8
+M2 = 6
 N = 100
 
 
