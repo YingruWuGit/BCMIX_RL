@@ -15,7 +15,7 @@ N = 100
 """
 XSTAR = 1.90
 YSTAR = 3.77
-W = 0.1
+W = 1
 GAMMA = 0.9
 LIM = 30
 M1 = 8
