@@ -3,24 +3,23 @@ import numpy as np
 from scipy.special import logsumexp
 
 
-XSTAR = 0
-YSTAR = 1
+YSTAR = 1.6375
 W = 0
 GAMMA = 0.9
 LIM = 30
-M1 = 4
-M2 = 3
+M1 = 8
+M2 = 6
 N = 100
 
 
-def reward(x, y):
+def reward(x, y, xstar):
     """
     immediate reward from x and y
     """
-    r = -(y - YSTAR) ** 2 - W * (x - XSTAR) ** 2
+    r = -(y - YSTAR) ** 2 - W * (x - xstar) ** 2
     return r
 
-def myopic(canonical, precision):
+def myopic(canonical, precision, xstar):
     """
     myopic policy given canonical and precision
     """
@@ -28,7 +27,7 @@ def myopic(canonical, precision):
     mean = covm @ canonical
     a, b = mean[0][0], mean[1][0]
     vb, vab = covm[1][1], covm[0][1]
-    x_myopic = -(vab + (a - YSTAR) * b - W * XSTAR) / (vb + b ** 2 + W)
+    x_myopic = -(vab + (a - YSTAR) * b - W * xstar) / (vb + b ** 2 + W)
     return x_myopic
 
 def env_response(x, alpha, beta, mean_true=None, covm_true=None, p=0, err=None):
@@ -60,7 +59,7 @@ def update_without_change(canonical, precision, x, y):
     precision_t = precision + xvec.T @ xvec
     return canonical_t, precision_t
 
-def q_myopic_without_change(canonical, precision, x, alpha, beta):
+def q_myopic_without_change(canonical, precision, x, alpha, beta, xstar):
     """
     given alpha beta, calculate Q function of state and action following myopic policy
     parameters:
@@ -71,15 +70,17 @@ def q_myopic_without_change(canonical, precision, x, alpha, beta):
     canonical_batch = [canonical.copy() for _ in range(N)]
     precision_batch = [precision.copy() for _ in range(N)]
     x_batch = np.full(N, x)
+    xstar_batch = np.full(N, xstar)
 
     for i in range(LIM):
         y_batch = alpha + x_batch * beta + np.random.normal(0.0, 1.0, N)
-        totreward += (GAMMA ** i) * reward(x_batch, y_batch)
+        totreward += (GAMMA ** i) * reward(x_batch, y_batch, xstar_batch)
         for j in range(N):
             canonical_batch[j], precision_batch[j] = update_without_change(
                 canonical_batch[j], precision_batch[j], x_batch[j], y_batch[j]
             )
-            x_batch[j] = myopic(canonical_batch[j], precision_batch[j])
+            xstar_batch[j] = x_batch[j]
+            x_batch[j] = myopic(canonical_batch[j], precision_batch[j], xstar_batch[j])
     return np.mean(totreward)
 
 def update_with_change(states, x, y, p):
@@ -124,17 +125,17 @@ def update_with_change(states, x, y, p):
         ans[M2 + M1] = states_t[-1]
         return ans
 
-def myopic_mix(states_i, p):
+def myopic_mix(states_i, p, xstar):
     """
     """
-    myopics = np.array([myopic(s["can"], s["pre"]) for _, s in states_i.items()])
+    myopics = np.array([myopic(s["can"], s["pre"], xstar) for _, s in states_i.items()])
     # note that alpha beta might change at this step
     pit_i = np.array([s["pit"] for _, s in states_i.items()]) * (1 - p)
     pit_i[0] = p
     x_myopic = np.dot(myopics, pit_i)
     return x_myopic
 
-def q_myopic_with_change(states, x, alpha, beta, mean_true, covm_true, p):
+def q_myopic_with_change(states, x, alpha, beta, mean_true, covm_true, p, xstar):
     """
     calculate Q function of states and action following myopic policy
     parameters:
@@ -149,11 +150,13 @@ def q_myopic_with_change(states, x, alpha, beta, mean_true, covm_true, p):
         # initialize
         totreward = 0
         states_i, x_i, alpha_i, beta_i = copy.deepcopy(states), x, alpha, beta
+        xstar_i = xstar
         for i in range(LIM):
             y_i, alpha_i, beta_i = env_response(x_i, alpha_i, beta_i, mean_true, covm_true, p)
-            totreward += (GAMMA ** i) * reward(x_i, y_i)
+            totreward += (GAMMA ** i) * reward(x_i, y_i, xstar_i)
             # next state
             states_i = update_with_change(states_i, x_i, y_i, p)
-            x_i = myopic_mix(states_i, p)
+            xstar_i = x_i
+            x_i = myopic_mix(states_i, p, xstar_i)
         estimates[n] = totreward
     return np.mean(estimates)
