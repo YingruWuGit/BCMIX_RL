@@ -3,6 +3,17 @@ import numpy as np
 from scipy.special import logsumexp
 
 
+"""
+XSTAR = 0
+YSTAR = 1
+W = 0
+GAMMA = 0.9
+LIM = 30
+M1 = 4
+M2 = 3
+N = 100
+"""
+XSTAR = 1.9
 YSTAR = 1.6375
 W = 0.1
 GAMMA = 0.9
@@ -12,22 +23,36 @@ M2 = 6
 N = 100
 
 
-def reward(x, y, xstar):
+def reward(x, y, xstar=None):
     """
-    immediate reward from x and y
+    immediate reward from x y and xstar
     """
+    xstar = XSTAR if xstar is None else xstar
     r = -(y - YSTAR) ** 2 - W * (x - xstar) ** 2
     return r
 
-def myopic(canonical, precision, xstar):
+def myopic(canonical, precision, xstar=None):
     """
-    myopic policy given canonical and precision
+    myopic policy given canonical precision and xstar
     """
+    xstar = XSTAR if xstar is None else xstar
     covm = np.linalg.inv(precision)
     mean = covm @ canonical
     a, b = mean[0][0], mean[1][0]
     vb, vab = covm[1][1], covm[0][1]
     x_myopic = -(vab + (a - YSTAR) * b - W * xstar) / (vb + b ** 2 + W)
+    return x_myopic
+
+def myopic_mix(states, p, xstar=None):
+    """
+    myopic policy for mixture model given states p(cp probability) and xstar
+    """
+    xstar = XSTAR if xstar is None else xstar
+    myopics = np.array([myopic(s["can"], s["pre"], xstar) for _, s in states.items()])
+    # note that alpha beta might change at this step
+    pit_i = np.array([s["pit"] for _, s in states.items()]) * (1 - p)
+    pit_i[0] = p
+    x_myopic = np.dot(myopics, pit_i)
     return x_myopic
 
 def env_response(x, alpha, beta, mean_true=None, covm_true=None, p=0, err=None):
@@ -124,16 +149,6 @@ def update_with_change(states, x, y, p):
             ans[i] = states_t[i + 1]
         ans[M2 + M1] = states_t[-1]
         return ans
-
-def myopic_mix(states_i, p, xstar):
-    """
-    """
-    myopics = np.array([myopic(s["can"], s["pre"], xstar) for _, s in states_i.items()])
-    # note that alpha beta might change at this step
-    pit_i = np.array([s["pit"] for _, s in states_i.items()]) * (1 - p)
-    pit_i[0] = p
-    x_myopic = np.dot(myopics, pit_i)
-    return x_myopic
 
 def q_myopic_with_change(states, x, alpha, beta, mean_true, covm_true, p, xstar):
     """
