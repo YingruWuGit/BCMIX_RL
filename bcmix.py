@@ -129,15 +129,13 @@ def update_with_change(states, x, y, p):
     logpit_s[-1] = np.log(p) + (states[0]["log"] - states_t[-1]["log"])
     max_logpit_t = np.max(logpit_s)
     pit_t = np.exp(np.array(logpit_s) - max_logpit_t)
-    pit_t /= np.sum(pit_t)
-    #log_like = logsumexp(logpit_s)
 
     for i in states_t.keys():
         states_t[i]["pit"] = pit_t[i]
     if len(states_t) <= M1 + M2 + 1:
         # num mix <= bound
         states_t[len(states_t)] = states_t.pop(-1)
-        return states_t
+        ans = copy.deepcopy(states_t)
     else:
         # num mix > bound
         ans = {0: states_t[0]}
@@ -147,7 +145,10 @@ def update_with_change(states, x, y, p):
         for i in range(M2 + 1, M2 + M1):
             ans[i] = states_t[i + 1]
         ans[M2 + M1] = states_t[-1]
-        return ans
+    pit_sum = sum([s["pit"] for s in ans.values()])
+    for i in ans.keys():
+        ans[i]["pit"] /= pit_sum
+    return ans
 
 def q_myopic_with_change(states, x, alpha, beta, mean_true, covm_true, p, xstar=None):
     """
