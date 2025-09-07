@@ -3,6 +3,7 @@ import numpy as np
 from scipy.special import logsumexp
 
 
+"""
 XSTAR = 0
 YSTAR = 1
 W = 0
@@ -17,10 +18,9 @@ YSTAR = 1.6375
 W = 0.1
 GAMMA = 0.9
 LIM = 30
-M1 = 8
-M2 = 6
+M1 = 6
+M2 = 4
 N = 100
-"""
 
 
 def reward(x, y, xstar=None):
