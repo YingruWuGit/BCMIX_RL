@@ -14,7 +14,7 @@ M2 = 3
 N = 100
 """
 XSTAR = 1.9
-YSTAR = 1.75
+YSTAR = 3.3096
 W = 0.1
 GAMMA = 0.9
 LIM = 30
