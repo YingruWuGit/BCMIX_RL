@@ -25,7 +25,7 @@ N = 100
 
 def reward(x, y, xstar=None):
     """
-    immediate reward from x y and xstar
+    immediate reward
     """
     xstar = XSTAR if xstar is None else xstar
     r = -(y - YSTAR) ** 2 - W * (x - xstar) ** 2
@@ -33,26 +33,33 @@ def reward(x, y, xstar=None):
 
 def myopic(canonical, precision, xstar=None):
     """
-    myopic policy given canonical precision and xstar
+    myopic policy without change point
     """
     xstar = XSTAR if xstar is None else xstar
     covm = np.linalg.inv(precision)
     mean = covm @ canonical
     a, b = mean[0][0], mean[1][0]
     vb, vab = covm[1][1], covm[0][1]
-    x_myopic = -(vab + (a - YSTAR) * b - W * xstar) / (vb + b ** 2 + W)
+    x_myopic = -(vab + (a - YSTAR) * b - W * xstar) / (vb + b * b + W)
     return x_myopic
 
 def myopic_mix(states, p, xstar=None):
     """
-    myopic policy for mixture model given states p(cp probability) and xstar
     """
     xstar = XSTAR if xstar is None else xstar
-    myopics = np.array([myopic(s["can"], s["pre"], xstar) for _, s in states.items()])
-    # note that alpha beta might change at this step
-    pit_i = np.array([s["pit"] for _, s in states.items()]) * (1 - p)
-    pit_i[0] = p
-    x_myopic = np.dot(myopics, pit_i)
+    bamys, bsquare, pit = [], [], []
+    for _, s in states.items():
+        covm = np.linalg.inv(s["pre"])
+        mean = covm @ s["can"]
+        amys, b = mean[0][0] - YSTAR, mean[1][0]
+        vb, vab = covm[1][1], covm[0][1]
+        bamys.append(vab + amys * b)
+        bsquare.append(vb + b * b)
+        pit.append(s["pit"] * (1 - p))
+    pit[0] = p
+    bamys = np.dot(bamys, pit)
+    bsquare = np.dot(bsquare, pit)
+    x_myopic = -(bamys - W * xstar) / (bsquare + W)
     return x_myopic
 
 def env_response(x, alpha, beta, mean_true=None, covm_true=None, p=0, err=None):
