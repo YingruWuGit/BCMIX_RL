@@ -4,7 +4,7 @@ from scipy.special import logsumexp
 
 
 XSTAR = 0
-YSTAR = 1
+YSTAR = 0
 W = 0
 GAMMA = 0.9
 LIM = 31
@@ -78,7 +78,7 @@ def myopic_mix(states, p, xstar=None):
     myopic_gain = -va - amys**2 - 1 - W * xstar**2 + (bamys - W * xstar)**2 / (bsquare + W)
     return x_myopic, myopic_gain
 
-def gain_mix(states, p, x=None, xstar=None):
+def gain_mix(states, p, x, xstar=None):
     """
     expected immediate reward condition on s, x with change point
     states: posterior of previous time
@@ -113,7 +113,8 @@ def env_response(x, alpha, beta, mean_true=None, covm_true=None, p=0, err=None):
     ic = np.random.binomial(1, p)
     if ic:
         alpha, beta = np.random.multivariate_normal(mean_true.flatten(), covm_true)
-    err = np.random.normal(0.0, 1.0) if err is None else err
+    if err is None:
+        err = np.random.normal(0.0, 1.0, len(x)) if isinstance(x, np.ndarray) else np.random.normal(0.0, 1.0)
     y = alpha + x * beta + err
     return y, alpha, beta
 
@@ -150,8 +151,8 @@ def q_myopic_without_change(canonical, precision, x, xstar=None):
     beta_batch = thetas[:, 1]
 
     for i in range(1, LIM):
-        # y_batch from t = i - 1
-        y_batch = alpha_batch + x_batch * beta_batch + np.random.normal(0.0, 1.0, N) # equal to env_response
+        # y_batch observation at t = i - 1
+        y_batch = env_response(x_batch, alpha_batch, beta_batch)[0]
         for j in range(N):
             canonical_batch[j], precision_batch[j] = update_without_change(
                 canonical_batch[j], precision_batch[j], x_batch[j], y_batch[j]
@@ -166,7 +167,7 @@ def update_with_change(states, x, y, p):
     """
     update posterior states(canonical precision logcon pit) after observe x and y, assume change points
     params:
-        states: posterior from the previous time
+        states: posterior of the previous time
         x, y: observations
         p: probability of change point
     """
@@ -210,7 +211,7 @@ def q_myopic_with_change(states, x, p, xstar=None):
     """
     calculate Q function of state and action following myopic policy, assume change point
     params:
-        states: posterior from the previous time
+        states: posterior of the previous time
         x: action
         p: probability of change point
     """
@@ -221,7 +222,6 @@ def q_myopic_with_change(states, x, p, xstar=None):
         x_n, xstar_n = x, xstar
         totgain = gain_mix(states_n, p, x_n, xstar_n)
 
-        # true alpha beta from the previous time
         covm_0 = np.linalg.inv(states_n[0]["pre"])
         mean_0 = covm_0 @ states_n[0]["can"]
         if len(states_n) == 1:
@@ -233,7 +233,7 @@ def q_myopic_with_change(states, x, p, xstar=None):
             alpha_n, beta_n = np.random.multivariate_normal(mean_ic.flatten(), covm_ic)
 
         for i in range(1, LIM):
-            # y_n from t = i - 1
+            # y_n at t = i - 1
             y_n, alpha_n, beta_n = env_response(x_n, alpha_n, beta_n, mean_0, covm_0, p)
             states_n = update_with_change(states_n, x_n, y_n, p)
             xstar_n = xstar_n if xstar is None else x_n # if xstar not None use x_{t-1}
