@@ -3,12 +3,11 @@ import numpy as np
 from scipy.special import logsumexp
 
 
-"""
 XSTAR = 0
 YSTAR = 1
 W = 0
 GAMMA = 0.9
-LIM = 30
+LIM = 31
 M1 = 4
 M2 = 3
 N = 100
@@ -17,10 +16,11 @@ XSTAR = 1.9
 YSTAR = 3.3096
 W = 0.1
 GAMMA = 0.9
-LIM = 30
+LIM = 31
 M1 = 6
 M2 = 6
 N = 100
+"""
 
 
 def reward(x, y, xstar=None):
@@ -39,12 +39,26 @@ def myopic(canonical, precision, xstar=None):
     covm = np.linalg.inv(precision)
     mean = covm @ canonical
     a, b = mean[0][0], mean[1][0]
-    vb, vab = covm[1][1], covm[0][1]
-    x_myopic = -(vab + (a - YSTAR) * b - W * xstar) / (vb + b * b + W)
-    return x_myopic
+    va, vb, vab = covm[0][0], covm[1][1], covm[0][1]
+    x_myopic = -(vab + (a - YSTAR) * b - W * xstar) / (vb + b**2 + W)
+    myopic_gain = -va - (a - YSTAR)**2 - 1 - W * xstar**2 + (vab + (a - YSTAR) * b - W * xstar)**2 / (vb + b**2 + W)
+    return x_myopic, myopic_gain
+
+def gain(canonical, precision, x, xstar=None):
+    """
+    conditional expectation of immediate reward without change point
+    """
+    xstar = XSTAR if xstar is None else xstar
+    covm = np.linalg.inv(precision)
+    mean = covm @ canonical
+    a, b = mean[0][0], mean[1][0]
+    va, vb, vab = covm[0][0], covm[1][1], covm[0][1]
+    x_gain = -va - (a - YSTAR)**2 - 1 - W * xstar**2 - (vb + b**2 + W) * x**2 - 2 * (vab + (a - YSTAR) * b - W * xstar) * x
+    return x_gain
 
 def myopic_mix(states, p, xstar=None):
     """
+    myopic policy with change point
     """
     xstar = XSTAR if xstar is None else xstar
     bamys, bsquare, pit = [], [], []
@@ -52,21 +66,44 @@ def myopic_mix(states, p, xstar=None):
         covm = np.linalg.inv(s["pre"])
         mean = covm @ s["can"]
         amys, b = mean[0][0] - YSTAR, mean[1][0]
-        vb, vab = covm[1][1], covm[0][1]
+        va, vb, vab = covm[0][0], covm[1][1], covm[0][1]
         bamys.append(vab + amys * b)
-        bsquare.append(vb + b * b)
+        bsquare.append(vb + b**2)
         pit.append(s["pit"] * (1 - p))
     pit[0] = p
     bamys = np.dot(bamys, pit)
     bsquare = np.dot(bsquare, pit)
     x_myopic = -(bamys - W * xstar) / (bsquare + W)
-    return x_myopic
+    myopic_gain = -va - amys**2 - 1 - W * xstar**2 + (bamys - W * xstar)**2 / (bsquare + W)
+    return x_myopic, myopic_gain
+
+def gain_mix(states, p, x=None, xstar=None):
+    """
+    conditional expectation of immediate reward with change point
+    """
+    xstar = XSTAR if xstar is None else xstar
+    bamys, bsquare, pit = [], [], []
+    for _, s in states.items():
+        covm = np.linalg.inv(s["pre"])
+        mean = covm @ s["can"]
+        amys, b = mean[0][0] - YSTAR, mean[1][0]
+        va, vb, vab = covm[0][0], covm[1][1], covm[0][1]
+        bamys.append(vab + amys * b)
+        bsquare.append(vb + b**2)
+        pit.append(s["pit"] * (1 - p))
+    pit[0] = p
+    bamys = np.dot(bamys, pit)
+    bsquare = np.dot(bsquare, pit)
+    x_gain = -va - amys**2 - 1 - W * xstar**2 - (bsquare + W) * x**2 - 2 * (bamys - W * xstar) * x
+    return x_gain
 
 def env_response(x, alpha, beta, mean_true=None, covm_true=None, p=0, err=None):
     """
-    immediate response y and new alpha beta
-    parameters:
-        alpha, beta: previous values
+    returns:
+        immediate response y and new alpha beta
+    params:
+        x: action
+        alpha, beta: previous true values
         mean_true, covm_true: the prior of alpha beta
         p: probability of change point
         err: assign an error or use random error
@@ -81,7 +118,7 @@ def env_response(x, alpha, beta, mean_true=None, covm_true=None, p=0, err=None):
 def update_without_change(canonical, precision, x, y):
     """
     update state(canonical precision) after observe x and y, assume no change point
-    parameters:
+    params:
         canonical, precision: state at current step
         x, y: observations
     """
@@ -90,28 +127,37 @@ def update_without_change(canonical, precision, x, y):
     precision_t = precision + xvec.T @ xvec
     return canonical_t, precision_t
 
-def q_myopic_without_change(canonical, precision, x, alpha, beta, xstar=None):
+def q_myopic_without_change(canonical, precision, x, xstar=None):
     """
-    given alpha beta, calculate Q function of state and action following myopic policy
+    calculate Q function of state and action following myopic policy, no change point
     parameters:
         canonical, precision: state at current step
         x: action
     """
+    covm = np.linalg.inv(precision)
+    mean = covm @ canonical
+    thetas = np.random.multivariate_normal(mean.flatten(), covm, size=N)
+    alpha_batch = thetas[:, 0]
+    beta_batch = thetas[:, 1]
+
     totreward = np.zeros(N)
     canonical_batch = [canonical.copy() for _ in range(N)]
     precision_batch = [precision.copy() for _ in range(N)]
-    x_batch = np.full(N, x)
     xstar_batch = np.full(N, XSTAR) if xstar is None else np.full(N, xstar)
+    x_batch = np.full(N, x)
+    totreward += gain(canonical, precision, x, xstar)
 
-    for i in range(LIM):
-        y_batch = alpha + x_batch * beta + np.random.normal(0.0, 1.0, N)
-        totreward += (GAMMA ** i) * reward(x_batch, y_batch, xstar_batch)
+    for i in range(1, LIM):
+        # y_batch from t=i-1
+        y_batch = alpha_batch + x_batch * beta_batch + np.random.normal(0.0, 1.0, N)
         for j in range(N):
             canonical_batch[j], precision_batch[j] = update_without_change(
                 canonical_batch[j], precision_batch[j], x_batch[j], y_batch[j]
             )
-            xstar_batch[j] = XSTAR if xstar is None else x_batch[j]
-            x_batch[j] = myopic(canonical_batch[j], precision_batch[j], xstar_batch[j])
+            xstar_batch[j] = XSTAR if xstar is None else x_batch[j] # if xstar not None use x_{t-1}
+            myp = myopic(canonical_batch[j], precision_batch[j], xstar_batch[j])
+            x_batch[j] = myp[0]
+            totreward[j] += (GAMMA ** i) * myp[1]
     return np.mean(totreward)
 
 def update_with_change(states, x, y, p):
