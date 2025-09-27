@@ -6,6 +6,7 @@ from scipy.special import logsumexp
 XSTAR = 0
 YSTAR = 0
 W = 0
+SIGMA = 1.0
 GAMMA = 0.9
 LIM = 31
 M1 = 4
@@ -13,8 +14,9 @@ M2 = 3 # previous highest
 N = 100
 """
 XSTAR = 1.9
-YSTAR = 3.3096
+YSTAR = 1.75
 W = 1.0
+SIGMA = 0.5287
 GAMMA = 0.9
 LIM = 31
 M1 = 6
@@ -114,7 +116,7 @@ def env_response(x, alpha, beta, mean_true=None, covm_true=None, p=0, err=None):
     if ic:
         alpha, beta = np.random.multivariate_normal(mean_true.flatten(), covm_true)
     if err is None:
-        err = np.random.normal(0.0, 1.0, len(x)) if isinstance(x, np.ndarray) else np.random.normal(0.0, 1.0)
+        err = np.random.normal(0.0, SIGMA, len(x)) if isinstance(x, np.ndarray) else np.random.normal(0.0, SIGMA)
     y = alpha + x * beta + err
     return y, alpha, beta
 
@@ -126,8 +128,8 @@ def update_without_change(canonical, precision, x, y):
         x, y: observations
     """
     xvec = np.array([[1, x]])
-    canonical_t = canonical + xvec.T * y
-    precision_t = precision + xvec.T @ xvec
+    canonical_t = canonical + (xvec.T * y) / (SIGMA ** 2)
+    precision_t = precision + (xvec.T @ xvec) / (SIGMA ** 2)
     return canonical_t, precision_t
 
 def q_myopic_without_change(canonical, precision, x, xstar=None):
