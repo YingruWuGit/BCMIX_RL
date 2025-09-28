@@ -3,6 +3,7 @@ import numpy as np
 from scipy.special import logsumexp
 
 
+"""
 XSTAR = 0
 YSTAR = 0
 W = 0
@@ -22,7 +23,6 @@ LIM = 31
 M1 = 6
 M2 = 4 # previous highest
 N = 100
-"""
 
 
 def reward(x, y, xstar=None):
